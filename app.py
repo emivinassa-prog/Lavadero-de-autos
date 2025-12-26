@@ -1,143 +1,138 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
 import json
 import os
-from datetime import datetime
 
-# Archivo de datos
-ARCHIVO_DATOS = "datos_lavadero_pro.json"
+# --- CONFIGURACIÓN Y BASE DE DATOS ---
+st.set_page_config(page_title="Lavadero Pro App", layout="centered")
 
-def guardar_datos(clientes, servicios, contador):
-    data = {"clientes": clientes, "servicios": servicios, "contador": contador}
-    with open(ARCHIVO_DATOS, "w") as f:
-        json.dump(data, f, indent=4)
+ARCHIVO_DB = "base_datos_lavadero.json"
 
 def cargar_datos():
-    if os.path.exists(ARCHIVO_DATOS):
-        with open(ARCHIVO_DATOS, "r") as f:
-            data = json.load(f)
-            return data["clientes"], data["servicios"], data["contador"]
-    return {}, [], 1
+    if os.path.exists(ARCHIVO_DB):
+        with open(ARCHIVO_DB, "r") as f:
+            return json.load(f)
+    return {"clientes": {}, "servicios": [], "contador": 1}
 
-clientes, servicios, contador_id_lavado = cargar_datos()
+def guardar_datos(data):
+    with open(ARCHIVO_DB, "w") as f:
+        json.dump(data, f, indent=4)
 
-def registrar_cliente():
-    global clientes
-    nombre = input("Nombre del cliente: ")
-    telefono = input("Teléfono: ")
-    ultimos_digitos = telefono[-4:] 
-    vehiculos = [v.strip() for v in input("Vehículos (separados por coma): ").split(",")]
+# Inicializar la base de datos en la sesión
+if 'db' not in st.session_state:
+    st.session_state.db = cargar_datos()
+
+db = st.session_state.db
+
+# --- MENÚ LATERAL ---
+st.sidebar.header("🧼 Menú Principal")
+opcion = st.sidebar.radio("Seleccione una acción:", 
+                         ["Cargar Lavado", "Registrar Cliente", "Reporte Mensual", "Eliminar Registro"])
+
+# --- 1. REGISTRAR CLIENTE ---
+if opcion == "Registrar Cliente":
+    st.header("👤 Registrar Nuevo Cliente")
+    with st.form("form_cliente", clear_on_submit=True):
+        nombre = st.text_input("Nombre del Cliente")
+        telefono = st.text_input("Teléfono (completo)")
+        vehiculos_raw = st.text_input("Vehículos (si es más de uno, separar con coma)")
+        
+        if st.form_submit_button("Guardar Cliente"):
+            if nombre and telefono:
+                id_busqueda = telefono[-4:]
+                db["clientes"][id_busqueda] = {
+                    "nombre": nombre,
+                    "telefono": telefono,
+                    "vehiculos": [v.strip() for v in vehiculos_raw.split(",")]
+                }
+                guardar_datos(db)
+                st.success(f"✅ Cliente {nombre} guardado (ID: {id_busqueda})")
+            else:
+                st.error("Por favor completa nombre y teléfono.")
+
+# --- 2. CARGAR LAVADO ---
+elif opcion == "Cargar Lavado":
+    st.header("🚿 Cargar Lavado")
+    busqueda = st.text_input("Ingrese los últimos 4 dígitos del teléfono")
     
-    clientes[ultimos_digitos] = {'nombre': nombre, 'telefono': telefono, 'vehiculos': vehiculos}
-    guardar_datos(clientes, servicios, contador_id_lavado)
-    print(f"✅ Cliente {nombre} registrado.")
-
-def cargar_lavado():
-    global contador_id_lavado, servicios
-    busqueda = input("Últimos dígitos del teléfono: ")
-    
-    if busqueda not in clientes:
-        print("❌ Cliente no encontrado."); return
-
-    cliente = clientes[busqueda]
-    
-    # Selección Vehículo
-    for i, v in enumerate(cliente['vehiculos'], 1): print(f"{i}. {v}")
-    vehiculo_sel = cliente['vehiculos'][int(input("Seleccione vehículo: ")) - 1]
-
-    # Tipo de Lavado
-    opciones = ["Lavado básico", "Lavado a domicilio", "Limpieza de motor", "Ópticas", "Abrillantado", "Limpieza de tapizado"]
-    for i, tipo in enumerate(opciones, 1): print(f"{i}. {tipo}")
-    tipo_sel = opciones[int(input("Tipo de lavado: ")) - 1]
-
-    # Valores
-    valor = float(input("Valor del servicio: $"))
-    propina = float(input("Propina: $"))
-
-    # Método de Pago
-    print("Método de pago: 1. Efectivo | 2. Mercado Pago")
-    metodo_sel = "Efectivo" if input("Opción: ") == "1" else "Mercado Pago"
-
-    # Ayudante
-    ayudantes = ["No hubo", "Vicki", "Maxi", "Soto"]
-    for i, ayu in enumerate(ayudantes, 1): print(f"{i}. {ayu}")
-    ayu_sel = ayudantes[int(input("Ayudante: ")) - 1]
-    pago_ayu = float(input(f"Pago para {ayu_sel}: $")) if ayu_sel != "No hubo" else 0
-
-    # Fecha Actual Automática
-    fecha_hoy = datetime.now().strftime("%d/%m/%Y")
-    mes_actual = datetime.now().month
-    anio_actual = datetime.now().year
-
-    registro = {
-        'id': contador_id_lavado,
-        'fecha': fecha_hoy,
-        'mes': mes_actual,
-        'anio': anio_actual,
-        'cliente': cliente['nombre'],
-        'vehiculo': vehiculo_sel,
-        'tipo': tipo_sel,
-        'valor': valor,
-        'propina': propina,
-        'metodo_pago': metodo_sel,
-        'ayudante': ayu_sel,
-        'pago_ayudante': pago_ayu
-    }
-    
-    servicios.append(registro)
-    print(f"✨ Lavado ID {contador_id_lavado} cargado el {fecha_hoy} ({metodo_sel}).")
-    contador_id_lavado += 1
-    guardar_datos(clientes, servicios, contador_id_lavado)
-
-def eliminar_lavado():
-    global servicios
-    id_elim = int(input("ID del lavado a eliminar: "))
-    servicios = [s for s in servicios if s['id'] != id_elim]
-    guardar_datos(clientes, servicios, contador_id_lavado)
-    print("🗑️ Registro eliminado.")
-
-def mostrar_reporte():
-    mes = int(input("Mes a consultar (1-12): "))
-    anio = datetime.now().year
-    
-    efectivo = 0
-    mercado_pago = 0
-    total_propinas = 0
-    pago_empleados = 0
-    
-    print(f"\n{'='*90}")
-    print(f"REPORTE DE CAJA - MES {mes}/{anio}")
-    print(f"{'ID':<4} | {'Fecha':<10} | {'Cliente':<12} | {'Pago':<12} | {'Valor':<8} | {'Ayudante':<10} | {'Pago Ay.'}")
-    print(f"{'-'*90}")
-
-    for s in servicios:
-        if s['mes'] == mes and s['anio'] == anio:
-            if s['metodo_pago'] == "Efectivo": efectivo += s['valor']
-            else: mercado_pago += s['valor']
+    if busqueda in db["clientes"]:
+        cliente = db["clientes"][busqueda]
+        st.info(f"Cliente seleccionado: **{cliente['nombre']}**")
+        
+        with st.form("form_lavado", clear_on_submit=True):
+            vehi_sel = st.selectbox("Seleccione Vehículo", cliente["vehiculos"])
+            tipo_lavado = st.selectbox("Tipo de Lavado", 
+                                      ["Lavado básico", "Lavado a domicilio", "Limpieza de motor", 
+                                       "Ópticas", "Abrillantado", "Limpieza de tapizado"])
+            metodo_pago = st.radio("Método de Pago", ["Efectivo", "Mercado Pago"], horizontal=True)
+            valor = st.number_input("Valor del Servicio $", min_value=0)
+            propina = st.number_input("Propina $", min_value=0)
             
-            total_propinas += s['propina']
-            pago_empleados += s['pago_ayudante']
+            ayu = st.selectbox("Ayudante", ["No hubo", "Vicki", "Maxi", "Soto"])
+            pago_ayu = st.number_input(f"¿Cuánto se le pagó a {ayu}?", min_value=0) if ayu != "No hubo" else 0
             
-            print(f"{s['id']:<4} | {s['fecha']:<10} | {s['cliente']:<12} | {s['metodo_pago']:<12} | ${s['valor']:<7} | {s['ayudante']:<10} | ${s['pago_ayudante']}")
+            if st.form_submit_button("Registrar Lavado"):
+                nuevo_lavado = {
+                    "id": db["contador"],
+                    "fecha": datetime.now().strftime("%d/%m/%Y"),
+                    "mes": datetime.now().month,
+                    "anio": datetime.now().year,
+                    "cliente": cliente["nombre"],
+                    "vehiculo": vehi_sel,
+                    "tipo": tipo_lavado,
+                    "metodo": metodo_pago,
+                    "valor": valor,
+                    "propina": propina,
+                    "ayudante": ayu,
+                    "pago_ayu": pago_ayu
+                }
+                db["servicios"].append(nuevo_lavado)
+                db["contador"] += 1
+                guardar_datos(db)
+                st.success(f"✨ Lavado ID {nuevo_lavado['id']} guardado correctamente.")
+    elif busqueda:
+        st.warning("⚠️ Cliente no encontrado. Regístrelo primero.")
 
-    total_bruto = efectivo + mercado_pago
-    print(f"{'='*90}")
-    print(f"💵 Efectivo en Caja:      ${efectivo}")
-    print(f"📱 Mercado Pago:          ${mercado_pago}")
-    print(f"💰 Propina total del mes: ${total_propinas}")
-    print(f"👷 Pago a Ayudantes:      -${pago_empleados}")
-    print(f"{'-'*30}")
-    print(f"📊 GANANCIA TOTAL (Sin contar empleados): ${total_bruto + total_propinas}")
-    print(f"🚀 GANANCIA NETA (Lo que te queda):      ${(total_bruto + total_propinas) - pago_empleados}")
+# --- 3. REPORTE MENSUAL ---
+elif opcion == "Reporte Mensual":
+    st.header("📊 Reporte de Ganancias")
+    mes_sel = st.selectbox("Seleccione el Mes", range(1, 13), index=datetime.now().month - 1)
+    
+    if db["servicios"]:
+        df = pd.DataFrame(db["servicios"])
+        df_mes = df[(df["mes"] == mes_sel) & (df["anio"] == datetime.now().year)]
+        
+        if not df_mes.empty:
+            st.dataframe(df_mes[["id", "fecha", "cliente", "vehiculo", "metodo", "valor", "ayudante", "pago_ayu"]])
+            
+            # Cálculos rápidos
+            efectivo = df_mes[df_mes["metodo"] == "Efectivo"]["valor"].sum()
+            mp = df_mes[df_mes["metodo"] == "Mercado Pago"]["valor"].sum()
+            total_propinas = df_mes["propina"].sum()
+            total_ayudantes = df_mes["pago_ayu"].sum()
+            
+            total_bruto = efectivo + mp + total_propinas # Ganancia total con propina
+            neta = total_bruto - total_ayudantes # Ganancia final sin empleados
+            
+            c1, c2 = st.columns(2)
+            c1.metric("Efectivo", f"${efectivo}")
+            c1.metric("Mercado Pago", f"${mp}")
+            c2.metric("Total Propinas", f"${total_propinas}")
+            c2.metric("Pago Ayudantes", f"-${total_ayudantes}")
+            
+            st.divider()
+            st.subheader(f"🚀 GANANCIA NETA TOTAL: ${neta}")
+        else:
+            st.write("No hay registros para este mes.")
+    else:
+        st.write("Aún no hay datos cargados.")
 
-def menu():
-    while True:
-        print("\n--- SISTEMA LAVADERO PRO ---")
-        print("1. Registrar Cliente\n2. Cargar Lavado\n3. Eliminar Lavado\n4. Reporte Mensual\n5. Salir")
-        op = input("Opción: ")
-        if op == "1": registrar_cliente()
-        elif op == "2": cargar_lavado()
-        elif op == "3": eliminar_lavado()
-        elif op == "4": mostrar_reporte()
-        elif op == "5": break
-
-if __name__ == "__main__":
-    menu()
+# --- 4. ELIMINAR ---
+elif opcion == "Eliminar Registro":
+    st.header("🗑️ Eliminar Lavado")
+    id_borrar = st.number_input("Ingrese el ID del lavado a borrar", min_value=1)
+    if st.button("Eliminar permanentemente"):
+        db["servicios"] = [s for s in db["servicios"] if s["id"] != id_borrar]
+        guardar_datos(db)
+        st.error(f"Registro {id_borrar} eliminado.")
